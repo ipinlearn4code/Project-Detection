@@ -1,0 +1,8 @@
+venv/
+ultralytics-env/
+__pycache__/
+*.pt
+*.env
+deteksi.jpg
+*.pyc
+config.py
