@@ -1,0 +1,75 @@
+{
+  "imgdata": [
+    {
+      "nama_file": "1.jpeg",
+      "lokasi": "Jl. MT Haryono, Malang, Jawa Timur",
+      "detected": [
+        "Deteksi Mur, 0.85, 4500.5",
+        "KERIKIL, 0.72, 12000.0"
+      ]
+    },
+    {
+      "nama_file": "2.jpeg",
+      "lokasi": "Jl. Raya Darmo, Surabaya, Jawa Timur",
+      "detected": [
+        "Tumpahan Oli, 0.90, 3000.0"
+      ]
+    },
+    {
+      "nama_file": "3.jpeg",
+      "lokasi": "Jl. Diponegoro, Semarang, Jawa Tengah",
+      "detected": [
+        "Deteksi Baut, 0.80, 5000.0"
+      ]
+    },  
+    {
+      "nama_file": "4.jpeg",
+      "lokasi": "Jl. Sudirman, Jakarta Pusat, DKI Jakarta",
+      "detected": [
+        "KERIKIL, 0.75, 15000.0"
+      ]
+    },
+    {
+      "nama_file": "5.jpeg",
+      "lokasi": "Jl. Gajah Mada, Jakarta Barat, DKI Jakarta",
+      "detected": [
+        "Tumpahan Oli, 0.88, 4000.0"
+      ]
+    },
+    {
+      "nama_file": "6.jpeg",
+      "lokasi": "Jl. Pahlawan, Surabaya, Jawa Timur",
+      "detected": [
+        "Deteksi Mur, 0.82, 6000.0"
+      ]
+    },
+    {
+      "nama_file": "7.jpeg",
+      "lokasi": "Jl. Malioboro, Yogyakarta, DI Yogyakarta",
+      "detected": [
+        "KERIKIL, 0.70, 10000.0"
+      ]
+    },
+    {
+      "nama_file": "8.jpeg",
+      "lokasi": "Jl. Asia Afrika, Bandung, Jawa Barat",
+      "detected": [
+        "Tumpahan Oli, 0.92, 3500.0"
+      ]
+    },
+    {
+      "nama_file": "9.jpeg",
+      "lokasi": "Jl. Diponegoro, Semarang, Jawa Tengah",
+      "detected": [
+        "Deteksi Baut, 0.78, 5500.0"
+      ]
+    },
+    {
+      "nama_file": "10.jpeg",
+      "lokasi": "Jl. Sudirman, Jakarta Pusat, DKI Jakarta",
+      "detected": [
+        "KERIKIL, 0.80, 14000.0"
+      ]
+    }
+  ]
+}
