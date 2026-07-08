@@ -5,4 +5,7 @@ __pycache__/
 *.env
 deteksi.jpg
 *.pyc
+*.csv
+*.jpg
+*.pkl
 config.py
