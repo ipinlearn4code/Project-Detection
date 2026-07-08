@@ -4,11 +4,120 @@ from telegram import Bot
 from datetime import datetime
 import pandas as pd
 from config import TOKEN, CHAT_ID
-from gps import get_gps_async
+import time
 
-CONF_THRES = 0.65             # dinaikkan dari 0.5 untuk kurangi false positive
+import serial_asyncio
+import pynmea2
+import sys
+# import platform
+import gps  # Pastikan untuk mengakses variabel global gps.GPS_TTFF
+# from gps import get_gps_async
+
+import subprocess
+import numpy as np
+
+# Pastikan Anda mengimpor gps_loop dan get_latest_gps dari file gps.py Anda
+# dari gps import gps_loop, get_latest_gps, GPS_TTFF
+
+async def startup_diagnostics():
+    """
+    (Permintaan No. 3, 4, 5: Mengambil data cold start, TTFF, ping Telegram, 
+    lalu diprint dan dikirim ke Telegram).
+    """
+    print("--- Menjalankan Diagnostik Startup ---")
+    stats = []
+    
+    # 3. Baca systemd-analyze (Cold Start Raspi)
+    try:
+        # Menjalankan command terminal dari Python
+        boot_time = subprocess.check_output(['systemd-analyze']).decode('utf-8').strip()
+        stats.append(f"⏱️ *Cold Start (systemd)*:\n`{boot_time}`")
+    except Exception as e:
+        stats.append("⏱️ *Cold Start (systemd)*: Gagal dibaca (Mungkin bukan Linux/Raspi)")
+
+    # 4a. Telegram Ping
+    t0_ping = time.time()
+    try:
+        await bot.get_me()
+        ping_ms = (time.time() - t0_ping) * 1000
+        stats.append(f"🌐 *Telegram Ping*: {ping_ms:.2f} ms")
+    except Exception as e:
+        stats.append(f"🌐 *Telegram Ping*: Gagal ({e})")
+
+    # 4b. Kamera TTFF (Membuka port kamera dan membaca frame pertama)
+    t0_cam = time.time()
+    global cap
+    if cap.isOpened():
+        ret, _ = cap.read()
+        if ret:
+            cam_ttff = (time.time() - t0_cam) * 1000
+            stats.append(f"📷 *Kamera TTFF*: {cam_ttff:.2f} ms")
+        else:
+            stats.append("📷 *Kamera TTFF*: Gagal membaca frame")
+    else:
+        stats.append("📷 *Kamera TTFF*: Kamera tidak terbuka")
+
+    # 4c. YOLO TTFF (Warmup model dengan dummy image agar loading ke RAM/VRAM selesai)
+    t0_yolo = time.time()
+    dummy_frame = np.zeros((320, 320, 3), dtype=np.uint8)
+    _ = model(dummy_frame, verbose=False)
+    yolo_ttff = (time.time() - t0_yolo) * 1000
+    stats.append(f"🧠 *YOLO TTFF (Warmup)*: {yolo_ttff:.2f} ms")
+
+    # 4d. GPS TTFF (Tunggu maksimal 15 detik untuk mendapatkan fix pertama kali)
+    import gps # Pastikan untuk mengakses variabel global gps.GPS_TTFF
+    print("Menunggu GPS lock (maks 15 detik)...")
+    wait_time = 0
+    while gps.GPS_TTFF == 0.0 and wait_time < 15:
+        await asyncio.sleep(1)
+        wait_time += 1
+        
+    if gps.GPS_TTFF > 0:
+        stats.append(f"🛰️ *GPS TTFF*: {gps.GPS_TTFF:.2f} detik")
+    else:
+        stats.append("🛰️ *GPS TTFF*: Timeout (Belum Fix)")
+
+    # 5. Print & Kirim ke Telegram sebelum sistem utama berjalan
+    report_text = "🚀 *SYSTEM STARTUP DIAGNOSTICS*\n\n" + "\n\n".join(stats)
+    
+    print("\n" + report_text.replace("*", "").replace("`", "") + "\n")
+    
+    try:
+        await bot.send_message(chat_id=CHAT_ID, text=report_text, parse_mode="Markdown")
+        print("Laporan diagnostik berhasil dikirim ke Telegram.")
+    except Exception as e:
+        print(f"Gagal mengirim diagnostik ke Telegram: {e}")
+
+# ... (Fungsi-fungsi lain tetap sama: capture_loop, detection_loop, dll) ...
+
+# Modifikasi fungsi main()
+async def main():
+    try:
+        # Jalankan loop GPS di background
+        asyncio.create_task(gps.gps_loop())
+        
+        # Jalankan pengecekan dan kirim pesan
+        await startup_diagnostics()
+        
+        # Lanjut ke operasi utama secara bersamaan
+        print("--- Memulai Sistem Utama ---")
+        await asyncio.gather(
+            capture_loop(),
+            detection_loop(),
+            telegram_sender_loop(),
+        )
+    except KeyboardInterrupt:
+        pass
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
+    
+CONF_THRES = 0.5             # dinaikkan dari 0.5 untuk kurangi false positive
 OVERLAP_RATIO = 0.15          # overlap antar kuadran, supaya objek di pinggir tidak terpotong
-MIN_CONFIRM_FRAMES = 4        # objek harus muncul minimal N frame berturut-turut sebelum dikirim
+MIN_CONFIRM_FRAMES = 1        # objek harus muncul minimal N frame berturut-turut sebelum dikirim
 MAX_AREA_RATIO = 0.25         # bbox tidak boleh lebih dari 25% luas frame (filter wajah/tangan besar)
 DETECTION_IMG_PATH = "deteksi.jpg"   # file tetap, selalu ditimpa, tidak buat file baru
 
@@ -26,7 +135,26 @@ LABEL_MAPPING = {
 }
 ICONS = {"deteksi mur": "🔩", "deteksi baut": "🔩", "kerikil": "🪨", "tumpahan oli": "🛢️"}
 
-cap = cv2.VideoCapture(2, cv2.CAP_DSHOW)
+def cari_kamera():
+    for i in range(10):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            # Coba ambil satu frame untuk memastikan benar-benar kamera
+            ret, frame = cap.read()
+            if ret:
+                print(f"Kamera ditemukan di indeks: {i}")
+                return i
+            cap.release()
+    return None
+
+index = cari_kamera()
+if index is not None:
+    cap = cv2.VideoCapture(index)
+else:
+    print("Kamera tidak ditemukan di indeks manapun.")
+    sys.exit()
+    
+# cap = cv2.VideoCapture(0)
 if not cap.isOpened():
     print("Kamera gagal dibuka"); exit()
 
@@ -122,8 +250,15 @@ def update_tracking(detections):
                 "sent": False,           # belum pernah dikirim ke Telegram
             }
             next_object_id += 1
-            active_objects.append(new_obj)
+            # active_objects.append(new_obj)
             matched_active_ids.add(new_obj["id"])
+            
+            # Jika batas konfirmasi adalah 1, langsung tandai terkirim detik ini juga!
+            if MIN_CONFIRM_FRAMES <= 1:
+                new_obj["sent"] = True
+                confirmed_to_send.append(d)
+
+            active_objects.append(new_obj)
 
     # objek aktif yang tidak ketemu pasangannya -> tambah missed
     for obj in active_objects:
@@ -140,6 +275,7 @@ def update_tracking(detections):
 # 1. CAPTURE LOOP  -> mengisi buffer (latest_frame) terus-menerus
 # =========================================================
 async def capture_loop():
+    print("--- Memulai capture frame dari kamera ---")
     global latest_frame, frame_ready
     while True:
         ret, frame = cap.read()
@@ -220,6 +356,7 @@ def draw_detections(frame, detections):
 # 3. PREDIKSI BAHAYA (Decision Tree) 
 # =========================================================
 def prediksi_bahaya(label, conf, area):
+    print("Prediksi bahaya dijalankan")
     label_ds = LABEL_MAPPING.get(label)
     if label_ds is None:
         return "rendah"
@@ -238,8 +375,11 @@ def prediksi_bahaya(label, conf, area):
 async def send_telegram(detections, image_path):
     lokasi = await get_gps_async(timeout=10)
 
+    # KEMBALIKAN PENGECEKAN INI: Sangat penting agar Telegram tidak error
     if lokasi is None:
         lokasi = "GPS belum mendapatkan sinyal"
+    else:
+        print(f"\nMengirim ke tele dengan lokasi : {lokasi}")
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -259,37 +399,39 @@ async def send_telegram(detections, image_path):
         f"{lokasi}"
     )
 
-    with open(image_path, "rb") as photo:
-
-        await bot.send_photo(
-            chat_id=CHAT_ID,
-            photo=photo,
-            caption=caption,
-            parse_mode="Markdown"
-        )
+    try:
+        with open(image_path, "rb") as photo:
+            await bot.send_photo(
+                chat_id=CHAT_ID,
+                photo=photo,
+                caption=caption,
+                parse_mode="Markdown"
+            )
+    except Exception as e:
+        print(f"Error dari Telegram Bot API: {e}")
 
 async def send_notification_after_delay():
-
-    global notification_buffer
-    global notification_task
-    global latest_output
+    global notification_buffer, notification_task, latest_output
 
     await asyncio.sleep(AGGREGATION_TIME)
 
     if notification_buffer:
-
-        cv2.imwrite(DETECTION_IMG_PATH, latest_output)
+        try:
+            # Tetap gunakan to_thread, tapi bungkus try-except agar jika
+            # OpenCV gagal write, program tidak langsung mati.
+            await asyncio.to_thread(cv2.imwrite, DETECTION_IMG_PATH, latest_output)
+        except Exception as e:
+            print(f"Gagal menyimpan gambar: {e}")
+            # Jika gagal simpan gambar baru, kita lewati to_thread tapi 
+            # tetap lanjut mengirim notifikasi (mungkin menggunakan gambar lama).
 
         await send_queue.put(
             (notification_buffer.copy(), DETECTION_IMG_PATH)
         )
-
         print(f"Mengirim {len(notification_buffer)} objek sekaligus")
-
         notification_buffer.clear()
 
     notification_task = None
-
 # =========================================================
 # 5. DETECTION LOOP -> ambil frame dari buffer KALAU sudah ada yang baru
 #    lalu split jadi 4 kuadran, deteksi.
@@ -298,64 +440,55 @@ async def send_notification_after_delay():
 #    Kalau tidak cocok dengan objek aktif manapun -> dianggap OBJEK BARU, dikirim ke queue.
 # =========================================================
 async def detection_loop():
-    global frame_ready
-
+    global frame_ready, latest_output, notification_buffer, notification_task
+    print("--- Memulai deteksi objek ---")
+    
     while True:
-        # --- cek buffer: ada frame baru atau belum ---
-        if not frame_ready or latest_frame is None:
+        try:
+            if not frame_ready or latest_frame is None:
+                await asyncio.sleep(0.01)
+                continue
+
+            frame_ready = False
+            frame = latest_frame.copy()
+            
+            waktu_mulai_str = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            print(f"[{waktu_mulai_str}] Mulai deteksi YOLO...")
+            start_time = time.perf_counter()
+            
+            detections = await asyncio.to_thread(detect_with_tiling, frame)
+            
+            end_time = time.perf_counter()
+            waktu_selesai_str = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            durasi_ms = (end_time - start_time) * 1000  # Konversi ke milidetik
+            print(f"[{waktu_selesai_str}] YOLO selesai dalam {durasi_ms:.2f} ms. Ditemukan {len(detections)} objek. confident={[d['conf'] for d in detections]}")
+            
+            output = draw_detections(frame, detections)
+            latest_output = output.copy()
+
+            confirmed_detections = update_tracking(detections)
+
+            for d in confirmed_detections:
+                label, conf, bbox = d["label"], d["conf"], d["bbox"]
+                area = float((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]))
+                
+                bahaya = prediksi_bahaya(label, conf, area)
+
+                if not any(obj["label"] == label for obj in notification_buffer):
+                    notification_buffer.append({
+                        "label": label,
+                        "confidence": conf,
+                        "bahaya": bahaya
+                    })
+
+            if notification_buffer and notification_task is None:
+                notification_task = asyncio.create_task(send_notification_after_delay())
+
             await asyncio.sleep(0.01)
-            continue
 
-        frame_ready = False                 # tandai frame ini sudah "diambil"
-        frame = latest_frame.copy()         # ambil dari buffer
-
-        # --- deteksi dengan tiling 4 kuadran (dijalankan di thread agar tidak blocking) ---
-        detections = await asyncio.to_thread(detect_with_tiling, frame)
-        output = draw_detections(frame, detections)
-
-        global latest_output
-
-        latest_output = output.copy()
-
-        # --- cocokkan dengan objek aktif (tracking + konfirmasi N frame) ---
-        confirmed_detections = update_tracking(detections)
-
-        global notification_buffer
-        global notification_task
-
-        for d in confirmed_detections:
-
-            label = d["label"]
-            x1, y1, x2, y2 = d["bbox"]
-            area = float((x2 - x1) * (y2 - y1))
-
-            bahaya = prediksi_bahaya(
-                label,
-                d["conf"],
-                area
-            )
-
-            if not any(obj["label"] == label for obj in notification_buffer):
-                notification_buffer.append({
-                    "label": label,
-                    "confidence": d["conf"],
-                    "bahaya": bahaya
-                })
-
-            print(f"Objek masuk buffer: {label}")
-
-        # Kalau ada objek baru DAN timer belum berjalan
-        if notification_buffer and notification_task is None:
-
-            notification_task = asyncio.create_task(
-                send_notification_after_delay()
-            )
-
-        cv2.imshow("YOLO Tiling + Decision Tree", output)
-        if cv2.waitKey(1) & 0xFF == 27:
-            raise KeyboardInterrupt
-
-        await asyncio.sleep(0.01)
+        except Exception as e:
+            print(f"Error pada detection_loop: {e}")
+            await asyncio.sleep(1) # Beri jeda sejenak sebelum mencoba lagi
 
 
 # =========================================================
@@ -383,18 +516,18 @@ async def telegram_sender_loop():
 # 7. MAIN -> jalankan capture_loop, detection_loop, dan telegram_sender_loop
 #    secara CONCURRENT (3 task async berjalan bersamaan)
 # =========================================================
-async def main():
-    try:
-        await asyncio.gather(
-            capture_loop(),
-            detection_loop(),
-            telegram_sender_loop(),
-        )
-    except KeyboardInterrupt:
-        pass
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
+# async def main():
+#     try:
+#         await asyncio.gather(
+#             capture_loop(),
+#             detection_loop(),
+#             telegram_sender_loop(),
+#         )
+#     except KeyboardInterrupt:
+#         pass
+#     finally:
+#         cap.release()
+#         cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
