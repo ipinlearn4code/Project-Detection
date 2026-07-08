@@ -2,73 +2,79 @@
   "imgdata": [
     {
       "nama_file": "1.jpeg",
-      "lokasi": "Jl. MT Haryono, Malang, Jawa Timur",
+      "lokasi": "http://maps.google.com/?q=-7.946184,112.622354",
       "detected": [
-        "Deteksi Mur, 0.85, 4500.5",
-        "KERIKIL, 0.72, 12000.0"
+        "Deteksi Mur, 0.77, 1600.0",
+        "Deteksi Mur, 0.81, 1300.0"
       ]
     },
     {
       "nama_file": "2.jpeg",
-      "lokasi": "Jl. Raya Darmo, Surabaya, Jawa Timur",
+      "lokasi": "http://maps.google.com/?q=-7.946076,112.622393",
       "detected": [
-        "Tumpahan Oli, 0.90, 3000.0"
+        "Deteksi Baut, 0.74, 2200.0"
       ]
     },
     {
       "nama_file": "3.jpeg",
-      "lokasi": "Jl. Diponegoro, Semarang, Jawa Tengah",
+      "lokasi": "http://maps.google.com/?q=-7.946105,112.622367",
       "detected": [
-        "Deteksi Baut, 0.80, 5000.0"
+        "Deteksi Mur, 0.64, 1200.0",
+        "Deteksi Mur, 0.84, 1300.0"
       ]
     },  
     {
       "nama_file": "4.jpeg",
-      "lokasi": "Jl. Sudirman, Jakarta Pusat, DKI Jakarta",
+      "lokasi": "http://maps.google.com/?q=-7.946105,112.622367",
       "detected": [
-        "KERIKIL, 0.75, 15000.0"
+        "Deteksi Baut, 0.82, 2500.0",
+        "Deteksi Mur, 0.79, 1500.0"
       ]
     },
     {
       "nama_file": "5.jpeg",
-      "lokasi": "Jl. Gajah Mada, Jakarta Barat, DKI Jakarta",
+      "lokasi": "http://maps.google.com/?q=-7.946116,112.622387",
       "detected": [
-        "Tumpahan Oli, 0.88, 4000.0"
+        "Deteksi Mur, 0.78, 1200.0"
       ]
     },
     {
       "nama_file": "6.jpeg",
-      "lokasi": "Jl. Pahlawan, Surabaya, Jawa Timur",
+      "lokasi": "http://maps.google.com/?q=-7.946155,112.622399",
       "detected": [
-        "Deteksi Mur, 0.82, 6000.0"
+        "TUMPAHAN OLI, 0.90, 8500.0",
+        "TUMPAHAN OLI, 0.89, 7000.0"
       ]
     },
     {
       "nama_file": "7.jpeg",
-      "lokasi": "Jl. Malioboro, Yogyakarta, DI Yogyakarta",
+      "lokasi": "http://maps.google.com/?q=-7.946148,112.622400",
       "detected": [
-        "KERIKIL, 0.70, 10000.0"
+        "TUMPAHAN OLI, 0.54, 4500.0"
       ]
     },
     {
       "nama_file": "8.jpeg",
-      "lokasi": "Jl. Asia Afrika, Bandung, Jawa Barat",
+      "lokasi": "http://maps.google.com/?q=-7.946168,112.622422",
       "detected": [
-        "Tumpahan Oli, 0.92, 3500.0"
+        "KERIKIL, 0.82, 350.0",
+        "KERIKIL, 0.76, 500.0",
+        "KERIKIL, 0.53, 300.0",
+        "KERIKIL, 0.58, 320.0",
+        "KERIKIL, 0.70, 600.0",
+        "Deteksi Mur, 0.71, 2500.0"
       ]
     },
     {
       "nama_file": "9.jpeg",
-      "lokasi": "Jl. Diponegoro, Semarang, Jawa Tengah",
+      "lokasi": "http://maps.google.com/?q=-7.946168,112.622422",
       "detected": [
-        "Deteksi Baut, 0.78, 5500.0"
-      ]
-    },
-    {
-      "nama_file": "10.jpeg",
-      "lokasi": "Jl. Sudirman, Jakarta Pusat, DKI Jakarta",
-      "detected": [
-        "KERIKIL, 0.80, 14000.0"
+        "KERIKIL, 0.82, 350.0",
+        "KERIKIL, 0.76, 500.0",
+        "KERIKIL, 0.53, 300.0",
+        "KERIKIL, 0.58, 320.0",
+        "KERIKIL, 0.70, 600.0",
+        "KERIKIL, 0.71, 2500.0"
       ]
     }
   ]

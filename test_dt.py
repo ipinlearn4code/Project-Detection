@@ -3,8 +3,9 @@ import json
 import joblib
 import pandas as pd
 import asyncio
+import random
 from telegram import Bot
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import TOKEN, CHAT_ID
 
@@ -49,7 +50,21 @@ def prediksi_bahaya(label, conf, area):
 # =========================================================
 async def send_telegram(detections, image_path, lokasi):
     # Menggunakan timestamp saat ini
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 1. Ambil waktu saat ini, tapi ubah jamnya ke 16:00:00 (4 sore)
+    waktu_awal = datetime.now().replace(hour=16, minute=0, second=0, microsecond=0)
+
+    # 2. Bikin angka acak untuk detik (0 sampai 3600 detik)
+    detik_acak = random.randint(0, 3600)
+
+    # 3. Tambahkan detik acak tersebut ke waktu_awal
+    waktu_random = waktu_awal + timedelta(seconds=detik_acak)
+
+    # 4. Format sesuai kebutuhanmu
+    ts = waktu_random.strftime("%Y-%m-%d %H:%M:%S")
+
+    print(ts)
 
     # Format teks objek (sama persis dengan kode asli)
     obj_text = "\n".join(
