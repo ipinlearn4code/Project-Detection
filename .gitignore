@@ -3,7 +3,9 @@ ultralytics-env/
 __pycache__/
 *.pt
 *.env
-deteksi.jpg
+*.jpg
+*.jpeg
+data/
 *.pyc
 *.csv
 *.jpg

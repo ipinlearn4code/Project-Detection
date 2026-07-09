@@ -5,7 +5,8 @@ from datetime import datetime
 import pandas as pd
 from config import TOKEN, CHAT_ID
 import time
-
+import os
+import time
 import serial_asyncio
 import pynmea2
 import sys
@@ -416,17 +417,19 @@ async def send_notification_after_delay():
     await asyncio.sleep(AGGREGATION_TIME)
 
     if notification_buffer:
+        # 1. BUAT NAMA FILE UNIK BERDASARKAN WAKTU
+        timestamp_ms = int(time.time() * 1000)
+        unik_img_path = f"deteksi_{timestamp_ms}.jpg"
+
         try:
-            # Tetap gunakan to_thread, tapi bungkus try-except agar jika
-            # OpenCV gagal write, program tidak langsung mati.
-            await asyncio.to_thread(cv2.imwrite, DETECTION_IMG_PATH, latest_output)
+            # 2. SIMPAN DENGAN NAMA FILE UNIK TERSEBUT
+            await asyncio.to_thread(cv2.imwrite, unik_img_path, latest_output)
         except Exception as e:
             print(f"Gagal menyimpan gambar: {e}")
-            # Jika gagal simpan gambar baru, kita lewati to_thread tapi 
-            # tetap lanjut mengirim notifikasi (mungkin menggunakan gambar lama).
 
+        # 3. KIRIM NAMA FILE UNIK KE ANTREAN TELEGRAM
         await send_queue.put(
-            (notification_buffer.copy(), DETECTION_IMG_PATH)
+            (notification_buffer.copy(), unik_img_path)
         )
         print(f"Mengirim {len(notification_buffer)} objek sekaligus")
         notification_buffer.clear()
@@ -502,13 +505,19 @@ async def telegram_sender_loop():
 
         try:
             await send_telegram(detections, img_path)
-
             print(f"Terkirim ke Telegram ({len(detections)} objek)")
 
         except Exception as e:
             print(f"Gagal kirim ke Telegram: {e}")
 
         finally:
+            # 4. HAPUS FILE SETELAH DIKIRIM (berhasil ataupun gagal)
+            if os.path.exists(img_path):
+                try:    
+                    os.remove(img_path)
+                except Exception as e:
+                    print(f"Gagal menghapus file {img_path}: {e}")
+                    
             send_queue.task_done()
 
 
