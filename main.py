@@ -357,7 +357,15 @@ def draw_detections(frame, detections):
 # 3. PREDIKSI BAHAYA (Decision Tree) 
 # =========================================================
 def prediksi_bahaya(label, conf, area):
-    print("Prediksi bahaya dijalankan")
+    # Override langsung untuk MUR dan BAUT — selalu tinggi
+    if label in ["Deteksi Mur", "Deteksi Baut"]:
+        return "tinggi"
+    
+    # Override langsung untuk KERIKIL — selalu rendah
+    if label == "KERIKIL":
+        return "rendah"
+    
+    # Hanya TUMPAHAN OLI yang pakai Decision Tree
     label_ds = LABEL_MAPPING.get(label)
     if label_ds is None:
         return "rendah"
