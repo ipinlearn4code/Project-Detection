@@ -13,12 +13,14 @@ import sys
 # import platform
 import gps  # Pastikan untuk mengakses variabel global gps.GPS_TTFF
 # from gps import get_gps_async
+# from gps import get_latest_gps, 
 
 import subprocess
 import numpy as np
 
 # Pastikan Anda mengimpor gps_loop dan get_latest_gps dari file gps.py Anda
 # dari gps import gps_loop, get_latest_gps, GPS_TTFF
+from gps import gps_loop, get_latest_gps, GPS_TTFF
 
 async def startup_diagnostics():
     """
@@ -382,7 +384,7 @@ def prediksi_bahaya(label, conf, area):
 # 4. KIRIM KE TELEGRAM 
 # =========================================================
 async def send_telegram(detections, image_path):
-    lokasi = await get_gps_async(timeout=10)
+    lokasi = await get_latest_gps()
 
     # KEMBALIKAN PENGECEKAN INI: Sangat penting agar Telegram tidak error
     if lokasi is None:
@@ -484,13 +486,12 @@ async def detection_loop():
                 area = float((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]))
                 
                 bahaya = prediksi_bahaya(label, conf, area)
-
-                if not any(obj["label"] == label for obj in notification_buffer):
-                    notification_buffer.append({
-                        "label": label,
-                        "confidence": conf,
-                        "bahaya": bahaya
-                    })
+                # if not any(obj["label"] == label for obj in notification_buffer):
+                notification_buffer.append({
+                    "label": label,
+                    "confidence": conf,
+                    "bahaya": bahaya
+                })
 
             if notification_buffer and notification_task is None:
                 notification_task = asyncio.create_task(send_notification_after_delay())

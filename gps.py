@@ -58,3 +58,28 @@ async def gps_loop():
 async def get_latest_gps():
     """Mengembalikan lokasi terakhir tanpa memblokir."""
     return LATEST_LOCATION
+
+
+# import asyncio
+# import gps  # import modul GPS
+
+# async def main():
+#     # Jalankan GPS di background
+#     asyncio.create_task(gps.gps_loop())
+
+#     print("Menunggu GPS mendapatkan lokasi...\n")
+
+#     while True:
+#         location = await gps.get_latest_gps()
+
+#         if location:
+#             print(f"Lokasi : {location}")
+#             print(f"TTFF   : {gps.GPS_TTFF:.2f} detik")
+#         else:
+#             print("Belum mendapatkan GPS Fix...")
+
+#         print("-" * 50)
+#         await asyncio.sleep(1)
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
