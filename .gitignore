@@ -11,3 +11,4 @@ data/
 *.jpg
 *.pkl
 config.py
+overlaying.py
