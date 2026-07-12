@@ -1,80 +1,12 @@
 {
   "imgdata": [
     {
-      "nama_file": "1.jpeg",
-      "lokasi": "http://maps.google.com/?q=-7.946184,112.622354",
+      "nama_file": "1.jpg",
+      "lokasi": "https://www.google.com/maps?q=-7.935076,112.623934",
       "detected": [
-        "Deteksi Mur, 0.77, 1600.0",
-        "Deteksi Mur, 0.81, 1300.0"
-      ]
-    },
-    {
-      "nama_file": "2.jpeg",
-      "lokasi": "http://maps.google.com/?q=-7.946076,112.622393",
-      "detected": [
-        "Deteksi Baut, 0.74, 2200.0"
-      ]
-    },
-    {
-      "nama_file": "3.jpeg",
-      "lokasi": "http://maps.google.com/?q=-7.946105,112.622367",
-      "detected": [
-        "Deteksi Mur, 0.64, 1200.0",
-        "Deteksi Mur, 0.84, 1300.0"
-      ]
-    },  
-    {
-      "nama_file": "4.jpeg",
-      "lokasi": "http://maps.google.com/?q=-7.946105,112.622367",
-      "detected": [
-        "Deteksi Baut, 0.82, 2500.0",
-        "Deteksi Mur, 0.79, 1500.0"
-      ]
-    },
-    {
-      "nama_file": "5.jpeg",
-      "lokasi": "http://maps.google.com/?q=-7.946116,112.622387",
-      "detected": [
-        "Deteksi Mur, 0.78, 1200.0"
-      ]
-    },
-    {
-      "nama_file": "6.jpeg",
-      "lokasi": "http://maps.google.com/?q=-7.946155,112.622399",
-      "detected": [
-        "TUMPAHAN OLI, 0.90, 8500.0",
-        "TUMPAHAN OLI, 0.89, 7000.0"
-      ]
-    },
-    {
-      "nama_file": "7.jpeg",
-      "lokasi": "http://maps.google.com/?q=-7.946148,112.622400",
-      "detected": [
-        "TUMPAHAN OLI, 0.54, 4500.0"
-      ]
-    },
-    {
-      "nama_file": "8.jpeg",
-      "lokasi": "http://maps.google.com/?q=-7.946168,112.622422",
-      "detected": [
-        "KERIKIL, 0.82, 350.0",
-        "KERIKIL, 0.76, 500.0",
-        "KERIKIL, 0.53, 300.0",
-        "KERIKIL, 0.58, 320.0",
-        "KERIKIL, 0.70, 600.0",
-        "Deteksi Mur, 0.71, 2500.0"
-      ]
-    },
-    {
-      "nama_file": "9.jpeg",
-      "lokasi": "http://maps.google.com/?q=-7.946168,112.622422",
-      "detected": [
-        "KERIKIL, 0.82, 350.0",
-        "KERIKIL, 0.76, 500.0",
-        "KERIKIL, 0.53, 300.0",
-        "KERIKIL, 0.58, 320.0",
-        "KERIKIL, 0.70, 600.0",
-        "KERIKIL, 0.71, 2500.0"
+        "KERIKIL, 0.57, 400.0",
+        "KERIKIL, 0.88, 500.0",
+        "KERIKIL, 0.88, 800.0"
       ]
     }
   ]

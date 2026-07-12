@@ -1,26 +1,31 @@
+#import library untuk yolo dan decision tree
 from ultralytics import YOLO
 import cv2, joblib, asyncio
+import pandas as pd
+import numpy as np
+#import library untuk telegram
 from telegram import Bot
 from datetime import datetime
-import pandas as pd
 from config import TOKEN, CHAT_ID
 import time
 import os
 import time
+#import library untuk GPS
 import serial_asyncio
 import pynmea2
 import sys
-# import platform
 import gps  # Pastikan untuk mengakses variabel global gps.GPS_TTFF
+from gps import gps_loop, get_latest_gps, GPS_TTFF
+# Pastikan mengimpor gps_loop dan get_latest_gps dari file gps.py Anda
+
+#import library untuk subprocessing/pembagian tugas dll
+import subprocess
+
+# import platform
 # from gps import get_gps_async
 # from gps import get_latest_gps, 
 
-import subprocess
-import numpy as np
-
-# Pastikan Anda mengimpor gps_loop dan get_latest_gps dari file gps.py Anda
 # dari gps import gps_loop, get_latest_gps, GPS_TTFF
-from gps import gps_loop, get_latest_gps, GPS_TTFF
 
 async def startup_diagnostics():
     """

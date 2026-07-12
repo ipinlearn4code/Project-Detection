@@ -12,3 +12,4 @@ data/
 *.pkl
 config.py
 overlaying.py
+overlayimg.py
