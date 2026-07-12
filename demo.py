@@ -1,68 +1,49 @@
+#import library untuk yolo dan decision tree
 from ultralytics import YOLO
 import cv2, joblib, asyncio
+import pandas as pd
+import numpy as np
+#import library untuk telegram
 from telegram import Bot
 from datetime import datetime
-import pandas as pd
 from config import TOKEN, CHAT_ID
 import time
 import os
-import subprocess
-import numpy as np
+import time
+#import library untuk GPS
+import serial_asyncio
+import pynmea2
 import sys
+import gps  # Pastikan untuk mengakses variabel global gps.GPS_TTFF
+from gps import gps_loop, get_latest_gps, GPS_TTFF
+# Pastikan mengimpor gps_loop dan get_latest_gps dari file gps.py Anda
+
+#import library untuk subprocessing/pembagian tugas dll
+import subprocess
+
 import threading
-from flask import Flask, Response
+from flask import Flask, Response, render_template_string
+import re
 
-# Pastikan module gps Anda ada di folder yang sama
-import gps  
-
-# =========================================================
-# --- DITAMBAHKAN UNTUK FLASK WEB STREAMER ---
-# =========================================================
 app = Flask(__name__)
 
-def generate_frames():
-    global latest_output, latest_frame
-    while True:
-        # Gunakan frame hasil deteksi jika ada, jika belum gunakan frame mentah dari kamera
-        frame_to_stream = latest_output if latest_output is not None else latest_frame
-        
-        if frame_to_stream is None:
-            time.sleep(0.1)
-            continue
-        
-        # Encode gambar ke JPEG
-        ret, buffer = cv2.imencode('.jpg', frame_to_stream)
-        if not ret:
-            continue
-            
-        frame_bytes = buffer.tobytes()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        
-        time.sleep(0.05) # Jeda tipis agar CPU tidak 100%
-
-@app.route('/')
-def video_feed():
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-def start_flask():
-    import logging
-    log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR) # Sembunyikan log Flask yang spam di terminal
-    app.run(host='0.0.0.0', port=5000, threaded=True)
-# =========================================================
-
+# import platform
 
 async def startup_diagnostics():
+    """
+    (Permintaan No. 3, 4, 5: Mengambil data cold start, TTFF, ping Telegram, 
+    lalu diprint dan dikirim ke Telegram).
+    """
     print("--- Menjalankan Diagnostik Startup ---")
     stats = []
     
     # 3. Baca systemd-analyze (Cold Start Raspi)
     try:
+        # Menjalankan command terminal dari Python
         boot_time = subprocess.check_output(['systemd-analyze']).decode('utf-8').strip()
         stats.append(f"⏱️ *Cold Start (systemd)*:\n`{boot_time}`")
     except Exception as e:
-        stats.append("⏱️ *Cold Start (systemd)*: Gagal dibaca")
+        stats.append("⏱️ *Cold Start (systemd)*: Gagal dibaca (Mungkin bukan Linux/Raspi)")
 
     # 4a. Telegram Ping
     t0_ping = time.time()
@@ -73,7 +54,7 @@ async def startup_diagnostics():
     except Exception as e:
         stats.append(f"🌐 *Telegram Ping*: Gagal ({e})")
 
-    # 4b. Kamera TTFF
+    # 4b. Kamera TTFF (Membuka port kamera dan membaca frame pertama)
     t0_cam = time.time()
     global cap
     if cap.isOpened():
@@ -86,14 +67,15 @@ async def startup_diagnostics():
     else:
         stats.append("📷 *Kamera TTFF*: Kamera tidak terbuka")
 
-    # 4c. YOLO TTFF (Warmup)
+    # 4c. YOLO TTFF (Warmup model dengan dummy image agar loading ke RAM/VRAM selesai)
     t0_yolo = time.time()
     dummy_frame = np.zeros((320, 320, 3), dtype=np.uint8)
     _ = model(dummy_frame, verbose=False)
     yolo_ttff = (time.time() - t0_yolo) * 1000
     stats.append(f"🧠 *YOLO TTFF (Warmup)*: {yolo_ttff:.2f} ms")
 
-    # 4d. GPS TTFF
+    # 4d. GPS TTFF (Tunggu maksimal 15 detik untuk mendapatkan fix pertama kali)
+    import gps # Pastikan untuk mengakses variabel global gps.GPS_TTFF
     print("Menunggu GPS lock (maks 15 detik)...")
     wait_time = 0
     while gps.GPS_TTFF == 0.0 and wait_time < 15:
@@ -105,21 +87,51 @@ async def startup_diagnostics():
     else:
         stats.append("🛰️ *GPS TTFF*: Timeout (Belum Fix)")
 
-    # 5. Print & Kirim
+    # 5. Print & Kirim ke Telegram sebelum sistem utama berjalan
     report_text = "🚀 *SYSTEM STARTUP DIAGNOSTICS*\n\n" + "\n\n".join(stats)
+    
     print("\n" + report_text.replace("*", "").replace("`", "") + "\n")
     
     try:
         await bot.send_message(chat_id=CHAT_ID, text=report_text, parse_mode="Markdown")
-        print("Laporan diagnostik dikirim ke Telegram.")
+        print("Laporan diagnostik berhasil dikirim ke Telegram.")
     except Exception as e:
-        print(f"Gagal mengirim diagnostik: {e}")
+        print(f"Gagal mengirim diagnostik ke Telegram: {e}")
 
-CONF_THRES = 0.5             
-OVERLAP_RATIO = 0.15          
-MIN_CONFIRM_FRAMES = 1        
-MAX_AREA_RATIO = 0.25         
-DETECTION_IMG_PATH = "deteksi.jpg"   
+# ... (Fungsi-fungsi lain tetap sama: capture_loop, detection_loop, dll) ...
+
+
+
+# Modifikasi fungsi main()
+async def main():
+    try:
+        # Jalankan loop GPS di background
+        asyncio.create_task(gps.gps_loop())
+        
+        # Jalankan pengecekan dan kirim pesan
+        await startup_diagnostics()
+        
+        # Lanjut ke operasi utama secara bersamaan
+        print("--- Memulai Sistem Utama ---")
+        await asyncio.gather(
+            capture_loop(),
+            detection_loop(),
+            telegram_sender_loop(),
+        )
+    except KeyboardInterrupt:
+        pass
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
+    
+CONF_THRES = 0.5             # dinaikkan dari 0.5 untuk kurangi false positive
+OVERLAP_RATIO = 0.15          # overlap antar kuadran, supaya objek di pinggir tidak terpotong
+MIN_CONFIRM_FRAMES = 1        # objek harus muncul minimal N frame berturut-turut sebelum dikirim
+MAX_AREA_RATIO = 0.25         # bbox tidak boleh lebih dari 25% luas frame (filter wajah/tangan besar)
+DETECTION_IMG_PATH = "deteksi.jpg"   # file tetap, selalu ditimpa, tidak buat file baru
 
 model = YOLO("best.pt")
 dt_model = joblib.load("decision_tree.pkl")
@@ -139,6 +151,7 @@ def cari_kamera():
     for i in range(10):
         cap = cv2.VideoCapture(i)
         if cap.isOpened():
+            # Coba ambil satu frame untuk memastikan benar-benar kamera
             ret, frame = cap.read()
             if ret:
                 print(f"Kamera ditemukan di indeks: {i}")
@@ -150,27 +163,44 @@ index = cari_kamera()
 if index is not None:
     cap = cv2.VideoCapture(index)
 else:
-    print("Kamera tidak ditemukan.")
+    print("Kamera tidak ditemukan di indeks manapun.")
     sys.exit()
     
+# cap = cv2.VideoCapture(0)
 if not cap.isOpened():
     print("Kamera gagal dibuka"); exit()
 
-IOU_THRESHOLD = 0.3      
-MAX_MISSED = 8           
-active_objects = []      
+# ---- Tracking berbasis posisi (IoU) -----------------------------------
+# Tujuannya: membedakan "objek yang sama, masih ada di tempat yang sama"
+# vs "objek baru yang posisinya berbeda", meski labelnya sama (misal 2 kerikil
+# berbeda). Hanya membandingkan label saja tidak cukup untuk kasus ini.
+IOU_THRESHOLD = 0.3      # seberapa besar overlap box dianggap "objek yang sama"
+MAX_MISSED = 8           # toleransi berapa siklus objek boleh "hilang sebentar"
+                         # sebelum dianggap benar-benar pergi (mengatasi deteksi flicker)
+
+# "confirmed_frames": berapa kali objek ini sudah terdeteksi berturut-turut.
+# Objek hanya dikirim ke Telegram kalau confirmed_frames >= MIN_CONFIRM_FRAMES.
+# Ini mencegah false positive sesaat (misal deteksi 1 frame karena noise/blur).
+active_objects = []      # [{"id", "label", "bbox", "missed", "confirmed_frames", "sent"}]
 next_object_id = 0
-AGGREGATION_TIME = 0.5  
+
+AGGREGATION_TIME = 0.5  # detik
 
 notification_buffer = []
 notification_task = None
+
+# Queue penghubung antara detection_loop (producer) dan telegram_sender_loop (consumer)
 send_queue = asyncio.Queue()
 
+# ---- Buffer antara capture & detection (async, bukan threading) ----
 latest_frame = None
 frame_ready = False
 latest_output = None
+latest_flask_output = None
+
 
 def compute_iou(box_a, box_b):
+    """Hitung Intersection-over-Union antara 2 bounding box (x1,y1,x2,y2)."""
     ax1, ay1, ax2, ay2 = box_a
     bx1, by1, bx2, by2 = box_b
 
@@ -187,8 +217,15 @@ def compute_iou(box_a, box_b):
     union_area = area_a + area_b - inter_area
     return inter_area / union_area if union_area > 0 else 0.0
 
+
 def update_tracking(detections):
+    """
+    Cocokkan deteksi frame ini dengan objek aktif (berdasar label + IoU).
+    Return: list deteksi yang BARU DIKONFIRMASI (sudah muncul >= MIN_CONFIRM_FRAMES
+    frame berturut-turut) dan belum pernah dikirim ke Telegram.
+    """
     global active_objects, next_object_id
+
     confirmed_to_send = []
     matched_active_ids = set()
 
@@ -205,38 +242,51 @@ def update_tracking(detections):
                 best_match = obj
 
         if best_match is not None and best_iou >= IOU_THRESHOLD:
+            # objek yang SAMA -> update posisi dan tambah hitungan konfirmasi
             best_match["bbox"] = d["bbox"]
             best_match["missed"] = 0
             best_match["confirmed_frames"] += 1
             matched_active_ids.add(best_match["id"])
 
+            # Kalau baru mencapai threshold konfirmasi DAN belum pernah dikirim -> kirim
             if best_match["confirmed_frames"] >= MIN_CONFIRM_FRAMES and not best_match["sent"]:
                 best_match["sent"] = True
                 confirmed_to_send.append(d)
         else:
+            # objek BARU -> tambahkan ke active_objects, belum dikonfirmasi
             new_obj = {
                 "id": next_object_id,
                 "label": d["label"],
                 "bbox": d["bbox"],
                 "missed": 0,
-                "confirmed_frames": 1,   
-                "sent": False,           
+                "confirmed_frames": 1,   # sudah 1 frame (frame ini)
+                "sent": False,           # belum pernah dikirim ke Telegram
             }
             next_object_id += 1
+            # active_objects.append(new_obj)
             matched_active_ids.add(new_obj["id"])
             
+            # Jika batas konfirmasi adalah 1, langsung tandai terkirim detik ini juga!
             if MIN_CONFIRM_FRAMES <= 1:
                 new_obj["sent"] = True
                 confirmed_to_send.append(d)
+
             active_objects.append(new_obj)
 
+    # objek aktif yang tidak ketemu pasangannya -> tambah missed
     for obj in active_objects:
         if obj["id"] not in matched_active_ids:
             obj["missed"] += 1
 
+    # buang objek yang sudah lama hilang
     active_objects = [obj for obj in active_objects if obj["missed"] <= MAX_MISSED]
+
     return confirmed_to_send
 
+
+# =========================================================
+# 1. CAPTURE LOOP  -> mengisi buffer (latest_frame) terus-menerus
+# =========================================================
 async def capture_loop():
     print("--- Memulai capture frame dari kamera ---")
     global latest_frame, frame_ready
@@ -245,20 +295,26 @@ async def capture_loop():
         if not ret:
             await asyncio.sleep(0.01)
             continue
+
         latest_frame = frame
         frame_ready = True
-        await asyncio.sleep(0.01) 
+        await asyncio.sleep(0.01)  # kasih kesempatan task lain (detection_loop) jalan
 
+
+# =========================================================
+# 2. SPLIT 1 FRAME JADI 4 KUADRAN (dengan overlap) + deteksi tiap kuadran
+#    Koordinat box dikembalikan ke posisi frame ASLI (bukan posisi di kuadran)
+# =========================================================
 def split_into_4_with_overlap(frame, overlap_ratio=OVERLAP_RATIO):
     h, w = frame.shape[:2]
     half_h, half_w = h // 2, w // 2
     pad_h, pad_w = int(half_h * overlap_ratio), int(half_w * overlap_ratio)
 
     coords = [
-        (0, 0, half_w + pad_w, half_h + pad_h),
-        (half_w - pad_w, 0, w, half_h + pad_h),
-        (0, half_h - pad_h, half_w + pad_w, h),
-        (half_w - pad_w, half_h - pad_h, w, h),
+        (0, 0, half_w + pad_w, half_h + pad_h),                      # kiri atas
+        (half_w - pad_w, 0, w, half_h + pad_h),                      # kanan atas
+        (0, half_h - pad_h, half_w + pad_w, h),                      # kiri bawah
+        (half_w - pad_w, half_h - pad_h, w, h),                      # kanan bawah
     ]
 
     quadrants = []
@@ -268,7 +324,9 @@ def split_into_4_with_overlap(frame, overlap_ratio=OVERLAP_RATIO):
         quadrants.append({"img": frame[y1:y2, x1:x2], "offset": (x1, y1)})
     return quadrants
 
+
 def detect_with_tiling(frame, conf_thres=CONF_THRES):
+    """Jalankan YOLO ke 4 kuadran, kembalikan semua deteksi dengan koordinat global."""
     frame_h, frame_w = frame.shape[:2]
     frame_area = frame_h * frame_w
     all_detections = []
@@ -284,6 +342,8 @@ def detect_with_tiling(frame, conf_thres=CONF_THRES):
                 x1, y1, x2, y2 = x1 + ox, y1 + oy, x2 + ox, y2 + oy
                 bbox_area = (x2 - x1) * (y2 - y1)
 
+                # Buang deteksi yang areanya terlalu besar relatif terhadap frame
+                # (kemungkinan besar wajah/tangan yang masuk frame, bukan objek di jalan)
                 if bbox_area / frame_area > MAX_AREA_RATIO:
                     continue
 
@@ -294,31 +354,65 @@ def detect_with_tiling(frame, conf_thres=CONF_THRES):
                 })
     return all_detections
 
-# =========================================================
-# --- DIMODIFIKASI: Menampilkan teks dari Decision Tree ---
-# =========================================================
+
 def draw_detections(frame, detections):
     output = frame.copy()
     for d in detections:
         x1, y1, x2, y2 = map(int, d["bbox"])
-        cv2.rectangle(output, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        bahaya = d.get("bahaya", "rendah").upper()
+        color = (0, 0, 255) if bahaya == "TINGGI" else (0, 255, 0)
         
-        # Ambil status bahaya (default kosong jika belum diprediksi)
-        status_bahaya = d.get('bahaya', '').upper()
-        
-        # Warna teks: Merah jika TINGGI, Hijau muda jika RENDAH/SEDANG
-        if status_bahaya == 'TINGGI':
-            warna_teks = (0, 0, 255) # BGR Merah
-        else:
-            warna_teks = (0, 255, 0) # BGR Hijau
-            
-        teks_display = f"{d['label']} {d['conf']:.2f} | {status_bahaya}"
-        
-        cv2.putText(output, teks_display, (x1, max(0, y1 - 8)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, warna_teks, 2)
+        cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)
+        label_text = f"{d['label']} {d['conf']:.2f} [{bahaya}]"
+        cv2.putText(output, label_text, (x1, max(0, y1 - 8)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     return output
+def add_flask_overlays(frame_with_boxes, detections, gps_info):
+    output = frame_with_boxes.copy()
+    h, w = output.shape[:2]
+    
+    # Teks Status Decision Tree di pojok kiri atas
+    y_offset = 30
+    cv2.putText(output, "HASIL DECISION TREE:", (15, y_offset), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+    y_offset += 25
+    
+    if not detections:
+        cv2.putText(output, "> AMAN (Tidak ada objek)", (15, y_offset), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
+    else:
+        for d in detections:
+            bahaya = d.get("bahaya", "rendah").upper()
+            color_dt = (0, 0, 255) if bahaya == "TINGGI" else (0, 255, 0)
+            text_dt = f"> {d['label']} -> BAHAYA {bahaya}"
+            cv2.putText(output, text_dt, (15, y_offset), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dt, 2, cv2.LINE_AA)
+            y_offset += 25
 
+    # Panel GPS di bagian bawah
+    panel_h = 45
+    overlay_panel = output.copy()
+    cv2.rectangle(overlay_panel, (0, h - panel_h), (w, h), (0, 0, 0), -1)
+    cv2.addWeighted(overlay_panel, 0.6, output, 0.4, 0, output)
+    
+    teks_lokasi = f"Live Lokasi: {gps_info}"
+    cv2.putText(output, teks_lokasi, (15, h - 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
+                
+    return output
+# =========================================================
+# 3. PREDIKSI BAHAYA (Decision Tree) 
+# =========================================================
 def prediksi_bahaya(label, conf, area):
+    # Override langsung untuk MUR dan BAUT — selalu tinggi
+    if label in ["Deteksi Mur", "Deteksi Baut"]:
+        return "tinggi"
+    
+    # Override langsung untuk KERIKIL — selalu rendah
+    if label == "KERIKIL":
+        return "rendah"
+    
+    # Hanya TUMPAHAN OLI yang pakai Decision Tree
     label_ds = LABEL_MAPPING.get(label)
     if label_ds is None:
         return "rendah"
@@ -330,10 +424,14 @@ def prediksi_bahaya(label, conf, area):
     pred = dt_model.predict(fitur)[0]
     return encoder_bahaya.inverse_transform([pred])[0]
 
-async def send_telegram(detections, image_path):
-    # Asumsikan gps.get_gps_async sudah di-import atau disesuaikan
-    lokasi = await gps.get_gps_async(timeout=10) 
 
+# =========================================================
+# 4. KIRIM KE TELEGRAM 
+# =========================================================
+async def send_telegram(detections, image_path):
+    lokasi = await get_latest_gps()
+
+    # KEMBALIKAN PENGECEKAN INI: Sangat penting agar Telegram tidak error
     if lokasi is None:
         lokasi = "GPS belum mendapatkan sinyal"
     else:
@@ -374,14 +472,17 @@ async def send_notification_after_delay():
     await asyncio.sleep(AGGREGATION_TIME)
 
     if notification_buffer:
+        # 1. BUAT NAMA FILE UNIK BERDASARKAN WAKTU
         timestamp_ms = int(time.time() * 1000)
         unik_img_path = f"deteksi_{timestamp_ms}.jpg"
 
         try:
+            # 2. SIMPAN DENGAN NAMA FILE UNIK TERSEBUT
             await asyncio.to_thread(cv2.imwrite, unik_img_path, latest_output)
         except Exception as e:
             print(f"Gagal menyimpan gambar: {e}")
 
+        # 3. KIRIM NAMA FILE UNIK KE ANTREAN TELEGRAM
         await send_queue.put(
             (notification_buffer.copy(), unik_img_path)
         )
@@ -389,9 +490,15 @@ async def send_notification_after_delay():
         notification_buffer.clear()
 
     notification_task = None
-
+# =========================================================
+# 5. DETECTION LOOP -> ambil frame dari buffer KALAU sudah ada yang baru
+#    lalu split jadi 4 kuadran, deteksi.
+#    Setiap deteksi dicocokkan ke objek aktif (IoU + label).
+#    Kalau cocok -> dianggap objek yang sama, posisinya diupdate, TIDAK dikirim ulang.
+#    Kalau tidak cocok dengan objek aktif manapun -> dianggap OBJEK BARU, dikirim ke queue.
+# =========================================================
 async def detection_loop():
-    global frame_ready, latest_output, notification_buffer, notification_task
+    global frame_ready, latest_output, latest_flask_output, notification_buffer, notification_task
     print("--- Memulai deteksi objek ---")
     
     while True:
@@ -403,88 +510,136 @@ async def detection_loop():
             frame_ready = False
             frame = latest_frame.copy()
             
+            waktu_mulai_str = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            print(f"[{waktu_mulai_str}] Mulai deteksi YOLO...")
             start_time = time.perf_counter()
+            
             detections = await asyncio.to_thread(detect_with_tiling, frame)
             
-            # =========================================================
-            # --- DIMODIFIKASI: Pindahkan proses Decision Tree ke sini ---
-            # =========================================================
+            gps_info = await get_latest_gps()
+            if gps_info is None:
+                gps_info = "GPS belum mendapatkan sinyal"
+                
             for d in detections:
-                bbox = d["bbox"]
+                label, conf, bbox = d["label"], d["conf"], d["bbox"]
                 area = float((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]))
-                d["bahaya"] = prediksi_bahaya(d["label"], d["conf"], area)
+                d["bahaya"] = prediksi_bahaya(label, conf, area) # Masukkan status ke dict deteksi
             
             end_time = time.perf_counter()
-            durasi_ms = (end_time - start_time) * 1000  
-            print(f"YOLO + DT selesai dalam {durasi_ms:.2f} ms. Ditemukan {len(detections)} objek.")
+            waktu_selesai_str = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+            durasi_ms = (end_time - start_time) * 1000  # Konversi ke milidetik
+            print(f"[{waktu_selesai_str}] YOLO selesai dalam {durasi_ms:.2f} ms. Ditemukan {len(detections)} objek. confident={[d['conf'] for d in detections]}")
             
-            # Sekarang gambar akan memiliki teks Bahaya Tinggi/Rendah
-            output = draw_detections(frame, detections)
+            output = draw_detections(frame, detections) # <-- Ditambah parameter gps_info
             latest_output = output.copy()
 
             confirmed_detections = update_tracking(detections)
 
             for d in confirmed_detections:
-                # Ambil "bahaya" langsung dari dictionary d, tidak perlu prediksi ulang
-                if not any(obj["label"] == d["label"] for obj in notification_buffer):
-                    notification_buffer.append({
-                        "label": d["label"],
-                        "confidence": d["conf"],
-                        "bahaya": d["bahaya"] 
-                    })
+                label, conf, bbox = d["label"], d["conf"], d["bbox"]
+                area = float((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]))
+                
+                bahaya = prediksi_bahaya(label, conf, area)
+                # if not any(obj["label"] == label for obj in notification_buffer):
+                notification_buffer.append({
+                    "label": label,
+                    "confidence": conf,
+                    "bahaya": bahaya
+                })
 
             if notification_buffer and notification_task is None:
                 notification_task = asyncio.create_task(send_notification_after_delay())
 
+            # Alur Baru Flask: Ambil gambar box tadi, tambahkan panel overlay
+            flask_output = add_flask_overlays(output, detections, gps_info)
+            global latest_flask_output
+            latest_flask_output = flask_output.copy() # Masukkan ke variabel baru khusus Flask
+            
             await asyncio.sleep(0.01)
 
         except Exception as e:
             print(f"Error pada detection_loop: {e}")
-            await asyncio.sleep(1) 
+            await asyncio.sleep(1) # Beri jeda sejenak sebelum mencoba lagi
 
+
+# =========================================================
+# 6. TELEGRAM SENDER LOOP -> consumer terpisah, ambil dari queue lalu kirim
+#    Dipisah dari detection_loop supaya proses kirim (network, bisa lambat)
+#    tidak menghambat proses deteksi frame berikutnya.
+# =========================================================
 async def telegram_sender_loop():
     while True:
         detections, img_path = await send_queue.get()
+
         try:
             await send_telegram(detections, img_path)
             print(f"Terkirim ke Telegram ({len(detections)} objek)")
+
         except Exception as e:
             print(f"Gagal kirim ke Telegram: {e}")
+
         finally:
+            # 4. HAPUS FILE SETELAH DIKIRIM (berhasil ataupun gagal)
             if os.path.exists(img_path):
                 try:    
                     os.remove(img_path)
                 except Exception as e:
                     print(f"Gagal menghapus file {img_path}: {e}")
+                    
             send_queue.task_done()
 
-# =========================================================
-# --- DIMODIFIKASI: Menjalankan Thread Flask sebelum Loop ---
-# =========================================================
-async def main():
-    try:
-        # Jalankan Flask Web Streamer di background
-        flask_thread = threading.Thread(target=start_flask, daemon=True)
-        flask_thread.start()
-        print("🌐 Web Streamer Aktif! Buka http://IP_RASPI:5000 di browser Anda.")
 
-        # Jalankan loop GPS
-        asyncio.create_task(gps.gps_loop())
-        
-        # Diagnostik
-        await startup_diagnostics()
-        
-        print("--- Memulai Sistem Utama ---")
-        await asyncio.gather(
-            capture_loop(),
-            detection_loop(),
-            telegram_sender_loop(),
-        )
-    except KeyboardInterrupt:
-        pass
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
+# =========================================================
+# 7. MAIN -> jalankan capture_loop, detection_loop, dan telegram_sender_loop
+#    secara CONCURRENT (3 task async berjalan bersamaan)
+# =========================================================
+# async def main():
+#     try:
+#         await asyncio.gather(
+#             capture_loop(),
+#             detection_loop(),
+#             telegram_sender_loop(),
+#         )
+#     except KeyboardInterrupt:
+#         pass
+#     finally:
+#         cap.release()
+#         cv2.destroyAllWindows()
+
+def gen_frames():
+    global latest_flask_output
+    while True:
+        if latest_flask_output is not None:
+            ret, buffer = cv2.imencode('.jpg', latest_flask_output)
+            if ret:
+                frame_bytes = buffer.tobytes()
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        time.sleep(0.1) # Decoupling: Menjaga CPU Raspi agar tidak 100%
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/')
+def index():
+    return render_template_string("""
+    <html>
+      <head><title>Live Stream</title></head>
+      <body style="background:#121212; text-align:center; color:white;">
+        <h1>⚠️ LIVE FOREIGN OBJECT DETECTION</h1>
+        <img src="{{ url_for('video_feed') }}" style="border:2px solid #333; max-width:100%;"/>
+      </body>
+    </html>
+    """)
+
+def start_flask():
+    app.run(host='0.0.0.0', port=5000, threaded=True, debug=False, use_reloader=False)
 
 if __name__ == "__main__":
+    # --- PENAMBAHAN BARU: Jalankan Flask di Thread Terpisah ---
+    flask_thread = threading.Thread(target=start_flask, daemon=True)
+    flask_thread.start()
+    print("🚀 Server Flask berjalan di background pada port 5000")
+    # ---------------------------------------------------------
     asyncio.run(main())
